@@ -78,3 +78,123 @@ private fun nextMissing(a: Activity, s: List<Pair<String, Int>>, from: Int): Int
     while (i < s.size && a.checkSelfPermission(s[i].first) == android.content.pm.PackageManager.PERMISSION_GRANTED) i++
     return i
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun App(act: Activity, premium: Boolean, onBuy: () -> Unit) {
+    val s = remember { steps() }
+    var i by remember { mutableIntStateOf(nextMissing(act, s, 0)) }
+    var wlAsked by remember { mutableStateOf(false) }
+    var killed by remember { mutableStateOf(FibState.isKilled(act)) }
+    val msgs = remember { mutableStateListOf<Msg>().apply { addAll(FibState.history(act)) } }
+    var input by remember { mutableStateOf("") }
+    var menu by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val list = rememberLazyListState()
+    val greeting = stringResource(R.string.greeting)
+
+    var ownerOn by remember { mutableStateOf(FibState.isOwner(act)) }
+    val isPrem = premium || ownerOn
+    val acct = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val name = r.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+        if (name != null && BuildConfig.OWNER_EMAIL.isNotEmpty() && name.equals(BuildConfig.OWNER_EMAIL, true)) {
+            FibState.setOwner(act, true); ownerOn = true
+            Toast.makeText(act, "Premium unlocked", Toast.LENGTH_SHORT).show()
+        } else if (name != null) Toast.makeText(act, "Not the owner account", Toast.LENGTH_SHORT).show()
+    }
+
+    LaunchedEffect(Unit) { while (true) { killed = FibState.isKilled(act); delay(700) } }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        i = nextMissing(act, s, i + 1)
+    }
+    if (i < s.size) {
+        AlertDialog(
+            onDismissRequest = {},
+            text = { Text(act.getString(s[i].second, act.getString(R.string.kill_hint))) },
+            confirmButton = { TextButton({ launcher.launch(s[i].first) }) { Text(stringResource(R.string.allow)) } },
+            dismissButton = { TextButton({ i = nextMissing(act, s, i + 1) }) { Text(stringResource(R.string.not_now)) } })
+    } else if (!wlAsked && (Whitelist.isBlocked(act) || FibState.wasStoppedBySystem(act))) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.wl_title)) },
+            text = { Text(act.getString(R.string.wl_msg, act.getString(R.string.kill_hint))) },
+            confirmButton = { TextButton({ wlAsked = true; Whitelist.request(act); Whitelist.openAutostart(act) }) { Text(stringResource(R.string.allow)) } },
+            dismissButton = { TextButton({ wlAsked = true }) { Text(stringResource(R.string.not_now)) } })
+    } else {
+        LaunchedEffect(Unit) { FibState.startListening(act) }
+    }
+
+    fun send(text: String) {
+        if (text.isBlank()) return
+        msgs.add(Msg(true, text)); input = ""
+        if (FibState.isKillPhrase(text)) { FibState.setKilled(act, true); killed = true; msgs.add(Msg(false, act.getString(R.string.killed))); return }
+        scope.launch { msgs.add(Msg(false, Brain.reply(act, text))); list.animateScrollToItem(msgs.size) }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(title = { Text("Fib") }, actions = {
+                TextButton(onClick = { if (!isPrem) onBuy() }) {
+                    Text(stringResource(if (isPrem) R.string.premium_on else R.string.premium)) }
+                Box {
+                    TextButton({ menu = true }) { Text("🌐") }
+                    DropdownMenu(menu, { menu = false }) {
+                        LANGS.forEach { (code, name) ->
+                            DropdownMenuItem(text = { Text(name) }, onClick = {
+                                menu = false
+                                AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(code))
+                            })
+                        }
+                        DropdownMenuItem(text = { Text("Owner sign-in") }, onClick = {
+                            menu = false
+                            acct.launch(AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null))
+                        })
+                    }
+                }
+            })
+        },
+        bottomBar = {
+            Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                if (!isPrem) AdBanner()
+                if (killed) {
+                    Row(Modifier.fillMaxWidth().background(Color(0xFF7F1D1D), RoundedCornerShape(12.dp)).padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.killed), Modifier.weight(1f))
+                        Button({ FibState.setKilled(act, false); killed = false }) { Text(stringResource(R.string.enable)) }
+                    }
+                } else Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(input, { input = it }, Modifier.weight(1f), shape = RoundedCornerShape(24.dp),
+                        placeholder = { Text(stringResource(R.string.hint)) }, singleLine = true)
+                    Spacer(Modifier.width(8.dp))
+                    Button({ send(input) }) { Text("➤") }
+                }
+            }
+        }
+    ) { pad ->
+        LazyColumn(Modifier.padding(pad).fillMaxSize().padding(horizontal = 16.dp), state = list,
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Bubble(Msg(false, greeting)) }
+            items(msgs) { Bubble(it) }
+        }
+    }
+}
+
+@Composable
+fun Bubble(m: Msg) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = if (m.user) Alignment.CenterEnd else Alignment.CenterStart) {
+        Surface(shape = RoundedCornerShape(16.dp), color = if (m.user) Color(0xFF1E3A8A) else Color(0xFF1A2233),
+            modifier = Modifier.widthIn(max = 320.dp)) { Text(m.text, Modifier.padding(12.dp)) }
+    }
+}
+
+@Composable
+fun AdBanner() {
+    AndroidView(modifier = Modifier.fillMaxWidth(), factory = { ctx ->
+        AdView(ctx).apply {
+            setAdSize(AdSize.BANNER)
+            adUnitId = "ca-app-pub-3940256099942544/6300978111"
+            loadAd(AdRequest.Builder().build())
+        }
+    })
+}
