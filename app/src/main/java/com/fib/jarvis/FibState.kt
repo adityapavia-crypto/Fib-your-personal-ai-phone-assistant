@@ -11,7 +11,9 @@ object FibState {
     private fun p(c: Context) = c.getSharedPreferences("fib", Context.MODE_PRIVATE)
 
     fun isKilled(c: Context) = p(c).getBoolean("killed", false)
-    fun isPremium(c: Context) = p(c).getBoolean("premium", false)
+        fun isOwner(c: Context) = p(c).getBoolean("owner", false)
+    fun setOwner(c: Context, v: Boolean) = p(c).edit().putBoolean("owner", v).apply()
+    fun isPremium(c: Context) = p(c).getBoolean("premium", false) || isOwner(c)
     fun setPremium(c: Context, v: Boolean) = p(c).edit().putBoolean("premium", v).apply()
     fun wasStoppedBySystem(c: Context) = p(c).getBoolean("stopped", false)
     fun setStoppedBySystem(c: Context, v: Boolean) = p(c).edit().putBoolean("stopped", v).apply()
