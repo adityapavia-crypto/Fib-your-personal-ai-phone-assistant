@@ -11,7 +11,7 @@ val props = Properties().apply { rootProject.file("local.properties").takeIf { i
 android {
     namespace = "com.fib.jarvis"
     compileSdk = 35
-    defaultConfig {
+    defaultConfig {        buildConfigField("String", "OWNER_EMAIL", "\"${props.getProperty("OWNER_EMAIL", "")}\"")
         applicationId = "com.fib.jarvis"
         minSdk = 26; targetSdk = 35
         versionCode = 1; versionName = "1.0"
