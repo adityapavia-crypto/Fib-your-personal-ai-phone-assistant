@@ -41,7 +41,13 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         premium.value = FibState.isPremium(this)
-        billing = Billing(this) { premium.value = it }.also { it.connect() }
+        billing =        val ci = UserMessagingPlatform.getConsentInformation(this)
+        if (ci.canRequestAds()) MobileAds.initialize(this) {}
+        ci.requestConsentInfoUpdate(this, ConsentRequestParameters.Builder().build(), {
+            UserMessagingPlatform.loadAndShowConsentFormIfRequired(this) {
+                if (ci.canRequestAds()) MobileAds.initialize(this) {}
+            }
+        }, { }) Billing(this) { premium.value = it }.also { it.connect() }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFF38BDF8))) {
                 App(this, premium.value) { billing.buy(this) }
